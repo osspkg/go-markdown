@@ -41,3 +41,37 @@ func TestUnit_Converter_Golden(t *testing.T) {
 		})
 	}
 }
+
+func TestUnit_Converter_GoldenHTMLToMarkdown(t *testing.T) {
+	tests := []struct {
+		name string
+	}{
+		{name: "document"},
+		{name: "gfm"},
+		{name: "fragment-recovery"},
+	}
+	converter, err := markdown.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			input, err := os.ReadFile(filepath.Join("testdata", "html-to-markdown", test.name+".html"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			expected, err := os.ReadFile(filepath.Join("testdata", "html-to-markdown", test.name+".md"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := converter.ConvertHTML(string(input))
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := strings.TrimSuffix(string(expected), "\n")
+			if got != want {
+				t.Errorf("Markdown = %q, want %q", got, want)
+			}
+		})
+	}
+}

@@ -1,0 +1,3 @@
+interface:
+  display_name: "Go Markdown Library"
+  short_description: "Use and extend go.osspkg.com/markdown in Go"

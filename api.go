@@ -3,8 +3,8 @@
  *  Use of this source code is governed by a BSD 3-Clause license that can be found in the LICENSE file.
  */
 
-// Package markdown tokenizes CommonMark and GFM documents and renders them as
-// HTML through replaceable token handlers.
+// Package markdown converts Markdown to HTML and HTML documents or fragments
+// to GitHub Flavored Markdown.
 package markdown
 
 import (
@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 	"sync"
 )
 
@@ -200,6 +201,11 @@ type Rule struct {
 // escaping and recursive child rendering helpers.
 type Handler func(*RenderContext, io.Writer, Token) error
 
+type registeredHTMLRule struct {
+	rule  HTMLRule
+	order uint64
+}
+
 // TokenizationResult contains a complete token tree and non-fatal warnings.
 type TokenizationResult struct {
 	Tokens   []Token
@@ -301,21 +307,26 @@ type registeredRule struct {
 }
 
 type converterSnapshot struct {
-	cfg      config
-	handlers map[TokenID]Handler
-	rules    []registeredRule
+	cfg          config
+	handlers     map[TokenID]Handler
+	rules        []registeredRule
+	htmlHandlers map[string]HTMLHandler
+	htmlRules    []registeredHTMLRule
 }
 
-// Converter tokenizes Markdown and renders its tokens through registered
-// handlers. Configure a Converter before its first operation; after that it
-// may be used concurrently.
+// Converter tokenizes Markdown, renders tokens through registered handlers,
+// and converts HTML to Markdown. Configure a Converter before its first
+// operation; after that it may be used concurrently.
 type Converter struct {
-	mu       sync.RWMutex
-	cfg      config
-	handlers map[TokenID]Handler
-	rules    []registeredRule
-	nextRule uint64
-	used     bool
+	mu           sync.RWMutex
+	cfg          config
+	handlers     map[TokenID]Handler
+	rules        []registeredRule
+	nextRule     uint64
+	htmlHandlers map[string]HTMLHandler
+	htmlRules    []registeredHTMLRule
+	nextHTMLRule uint64
+	used         bool
 }
 
 // New creates a configured Converter with the built-in parser and HTML
@@ -338,9 +349,11 @@ func New(opts ...Option) (*Converter, error) {
 	}
 
 	return &Converter{
-		cfg:      cfg,
-		handlers: defaultHandlers(),
-		rules:    []registeredRule{},
+		cfg:          cfg,
+		handlers:     defaultHandlers(),
+		rules:        []registeredRule{},
+		htmlHandlers: map[string]HTMLHandler{},
+		htmlRules:    []registeredHTMLRule{},
 	}, nil
 }
 
@@ -398,6 +411,61 @@ func (c *Converter) RegisterRule(rule Rule) error {
 	return nil
 }
 
+// RegisterHTMLHandler installs or replaces the handler for an HTML element
+// name. Element names are case-insensitive; the most recent registration wins.
+func (c *Converter) RegisterHTMLHandler(tag string, handler HTMLHandler) error {
+	if c == nil {
+		return errors.New("markdown: nil converter")
+	}
+	tag = strings.ToLower(strings.TrimSpace(tag))
+	if tag == "" {
+		return errors.New("markdown: empty HTML tag")
+	}
+	if handler == nil {
+		return fmt.Errorf("markdown: nil HTML handler for tag %q", tag)
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.used {
+		return ErrFrozen
+	}
+	if c.handlers == nil {
+		return errors.New("markdown: converter is not initialized; use New")
+	}
+	c.htmlHandlers[tag] = handler
+	return nil
+}
+
+// RegisterHTMLRule registers a prioritized rule for rendering HTML elements.
+// Higher priorities run first; equal priorities use reverse registration order.
+func (c *Converter) RegisterHTMLRule(rule HTMLRule) error {
+	if c == nil {
+		return errors.New("markdown: nil converter")
+	}
+	if strings.TrimSpace(rule.ID) == "" {
+		return errors.New("markdown: empty HTML rule id")
+	}
+	if rule.Match == nil {
+		return fmt.Errorf("markdown: nil matcher for HTML rule %q", rule.ID)
+	}
+	if rule.Handler == nil {
+		return fmt.Errorf("markdown: nil handler for HTML rule %q", rule.ID)
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.used {
+		return ErrFrozen
+	}
+	if c.handlers == nil {
+		return errors.New("markdown: converter is not initialized; use New")
+	}
+	c.nextHTMLRule++
+	c.htmlRules = append(c.htmlRules, registeredHTMLRule{rule: rule, order: c.nextHTMLRule})
+	return nil
+}
+
 func (c *Converter) snapshot() (converterSnapshot, error) {
 	if c == nil {
 		return converterSnapshot{}, errors.New("markdown: nil converter")
@@ -424,11 +492,24 @@ func (c *Converter) snapshot() (converterSnapshot, error) {
 		}
 		return rules[i].order > rules[j].order
 	})
+	htmlHandlers := make(map[string]HTMLHandler, len(c.htmlHandlers))
+	for tag, handler := range c.htmlHandlers {
+		htmlHandlers[tag] = handler
+	}
+	htmlRules := append([]registeredHTMLRule{}, c.htmlRules...)
+	sort.SliceStable(htmlRules, func(i, j int) bool {
+		if htmlRules[i].rule.Priority != htmlRules[j].rule.Priority {
+			return htmlRules[i].rule.Priority > htmlRules[j].rule.Priority
+		}
+		return htmlRules[i].order > htmlRules[j].order
+	})
 
 	return converterSnapshot{
-		cfg:      c.cfg,
-		handlers: handlers,
-		rules:    rules,
+		cfg:          c.cfg,
+		handlers:     handlers,
+		rules:        rules,
+		htmlHandlers: htmlHandlers,
+		htmlRules:    htmlRules,
 	}, nil
 }
 

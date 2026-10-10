@@ -32,3 +32,21 @@ func ExampleConverter() {
 	fmt.Println(result.HTML)
 	// Output: <p><mark>important</mark></p>
 }
+
+func ExampleConverter_ConvertHTML() {
+	converter, err := markdown.New()
+	if err != nil {
+		panic(err)
+	}
+
+	result, err := converter.ConvertHTML(`<h1>Hello</h1><p><strong>HTML</strong> content</p>`)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(result)
+	// Output:
+	// # Hello
+	//
+	// **HTML** content
+}

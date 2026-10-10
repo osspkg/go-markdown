@@ -7,8 +7,12 @@
 - `api.go` defines the public converter, token, option, rule, and handler APIs.
   `parser.go` and `inline.go` implement parsing; `renderer.go` implements
   built-in HTML rendering; `cursor.go` provides parser-rule context.
+- `html_to_markdown.go` implements HTML5-to-GFM conversion and its custom
+  HTML handler and rule APIs.
 - Tests live beside the package files. `testdata/commonmark/` and
-  `testdata/gfm/` contain Markdown/HTML golden pairs used by `golden_test.go`.
+  `testdata/gfm/` contain Markdown-to-HTML golden pairs;
+  `testdata/html-to-markdown/` contains HTML/Markdown golden pairs. All are
+  used by `golden_test.go`.
 - `.github/workflows/ci.yml` runs `make ci` with Go 1.26.
 
 ## Commands
@@ -35,6 +39,10 @@ Run commands from the repository root.
 - Keep HTML escaping and URL validation behavior covered when changing the
   renderer. Raw HTML is escaped by default, and custom handlers are trusted
   code.
+- Configure HTML-to-Markdown handlers and rules before first use. Rules run by
+  descending priority, with later registrations first for ties.
+- Preserve HTML conversion behavior: HTML5 recovery, head metadata frontmatter,
+  resource limits, safe URLs, and omission of comments, scripts, and styles.
 - Update the relevant golden `.md` and `.html` pair together when changing
   expected rendered output.
 - Do not edit `testdata/fuzz/` corpus files as ordinary source; `.gitignore`

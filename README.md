@@ -3,7 +3,7 @@
 `go.osspkg.com/markdown` is a Go library that parses Markdown into a
 hierarchical token tree and renders it as HTML. It includes CommonMark-style
 block and inline syntax, selected GitHub Flavored Markdown (GFM) features, and
-extension points for custom parser rules and token handlers.
+extension points for custom parser rules and renderers in both directions.
 
 See the [API reference](API.md) for the available methods, token IDs, and
 attributes.
@@ -43,12 +43,24 @@ func main() {
 
 	fmt.Println(result.HTML)
 	// <h1>Hello</h1><p>Markdown <strong>content</strong></p>
+
+	markdownText, err := converter.ConvertHTML(`<h1>Hello</h1><p><strong>HTML</strong> content</p>`)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(markdownText)
+	// # Hello
+	//
+	// **HTML** content
 }
 ```
 
 ## Features
 
 - Convert Markdown directly to HTML with `Converter.Convert`.
+- Convert HTML documents or fragments to GFM Markdown with
+  `Converter.ConvertHTML`, including optional YAML frontmatter from the page
+  title and description.
 - Parse Markdown into tokens with `Converter.Tokenize`, or render a token tree
   with `Converter.Render`.
 - Use headings, paragraphs, blockquotes, ordered and unordered lists, fenced
@@ -56,14 +68,51 @@ func main() {
   breaks.
 - Use GFM-style tables, strikethrough, task-list checkboxes, and automatic
   links for URL and email text.
-- Add block or inline parser rules and replace rendering handlers before the
-  converter's first operation.
+- Add block or inline Markdown parser rules, replace Markdown token handlers,
+  and customize HTML-to-Markdown rendering by tag or prioritized rule before
+  the converter's first operation.
 - Choose compact or deterministic indented HTML output and fail-fast or
   best-effort error handling.
 - Set input, nesting-depth, and token-count limits.
 
 This package implements the syntax covered by its parser and tests; it does
 not claim complete conformance with every CommonMark or GFM edge case.
+
+## HTML to Markdown
+
+`ConvertHTML` accepts a complete document or an HTML fragment. The HTML5 parser
+repairs malformed markup, decodes character references, and converts the body
+content to GFM Markdown. For documents, the first `<title>` and the first
+`<meta name="description">` supply YAML frontmatter values when non-empty:
+
+```html
+<html>
+  <head>
+    <title>Guide</title>
+    <meta name="description" content="A short guide">
+  </head>
+  <body><h1>Welcome</h1></body>
+</html>
+```
+
+```markdown
+---
+title: "Guide"
+description: "A short guide"
+---
+
+# Welcome
+```
+
+Head metadata is omitted when both values are empty. Unsupported tags are
+removed while their children are converted; comments, `<script>`, and
+`<style>` content are skipped. Links and images use the built-in safe URL
+policy. `WithMaxInputBytes`, `WithMaxNestingDepth`, and `WithMaxTokens` also
+limit HTML input size, nesting depth, and parsed node count.
+
+Headings, paragraphs, blockquotes, ordered and unordered lists, fenced code,
+links, images, line breaks, thematic breaks, tables, task checkboxes, emphasis,
+and strikethrough map to their Markdown equivalents.
 
 ## Customize rendering
 
@@ -87,9 +136,49 @@ err := converter.RegisterHandler(markdown.TokenStrong,
 ```
 
 The latest handler registered for a token ID replaces the previous handler.
-Register handlers and rules before calling `Tokenize`, `Render`, or `Convert`;
-the converter becomes immutable after its first operation and can then be used
-concurrently.
+Register handlers and rules before calling `Tokenize`, `Render`, `Convert`, or
+`ConvertHTML`; the converter becomes immutable after its first operation and
+can then be used concurrently.
+
+HTML-to-Markdown handlers use `HTMLNode` and `HTMLRenderContext`. A tag handler
+replaces the built-in conversion for that tag. A custom rule can match an
+element by its tag and attributes; higher priorities run first, with the most
+recent registration winning ties. `RenderChildren` uses the current block or
+inline mode, while `WriteText` escapes literal Markdown punctuation. For
+example, map `<mark>` to GFM highlight syntax:
+
+```go
+err := converter.RegisterHTMLHandler("mark",
+	func(ctx *markdown.HTMLRenderContext, w io.Writer, node markdown.HTMLNode) error {
+		if _, err := io.WriteString(w, "=="); err != nil {
+			return err
+		}
+		if err := ctx.RenderChildren(w, node); err != nil {
+			return err
+		}
+		_, err := io.WriteString(w, "==")
+		return err
+	})
+```
+
+Use a rule when the conversion depends on attributes rather than just the tag:
+
+```go
+err := converter.RegisterHTMLRule(markdown.HTMLRule{
+	ID:       "mention",
+	Priority: 100,
+	Match: func(node markdown.HTMLNode) bool {
+		kind, ok := node.Attribute("data-kind")
+		return node.Tag() == "span" && ok && kind == "mention"
+	},
+	Handler: func(ctx *markdown.HTMLRenderContext, w io.Writer, node markdown.HTMLNode) error {
+		if _, err := io.WriteString(w, "@"); err != nil {
+			return err
+		}
+		return ctx.RenderChildren(w, node)
+	},
+})
+```
 
 ## Add a parser rule
 
@@ -125,7 +214,9 @@ while filtering GFM-disallowed tags such as `<script>` and `<style>`.
 Built-in links and images accept only `http`, `https`, `mailto`, `tel`, `xmpp`,
 relative, and fragment URLs. Custom handlers write HTML directly and are
 trusted code; use `RenderContext.WriteText`, `WriteAttribute`, and `SafeURL`
-when handling untrusted values.
+when handling untrusted values. HTML-to-Markdown handlers write Markdown
+directly and are trusted code; use `HTMLRenderContext.WriteText` for literal
+text from untrusted HTML.
 
 By default, input is limited to 16 MiB, nesting depth to 128, and token count
 to 1,000,000. Configure these limits with `WithMaxInputBytes`,
@@ -143,7 +234,8 @@ converter, err := markdown.New(
 ```
 
 `ErrorModeFailFast` and `HTMLFormatCompact` are the defaults. Best-effort mode
-returns recoverable parser and renderer problems in the result's `Warnings`.
+returns recoverable Markdown parser and renderer problems in the result's
+`Warnings`; `ConvertHTML` reports failures through its returned error.
 `Convert` returns a `ConversionResult`; `Tokenize` returns a
 `TokenizationResult`; `Render` returns warnings and an error.
 

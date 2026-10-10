@@ -23,8 +23,8 @@ build:
 tests:
 	goppy test
 	go test -bench=. -benchmem -count=3 ./...
-	go test -fuzz=FuzzConverterDoesNotPanic -fuzztime=10s ./...
-	go test -fuzz=FuzzCustomRuleProgressIsBounded -fuzztime=10s ./...
+	go test -fuzz=FuzzConverterDoesNotPanic -fuzztime=10s .
+	go test -fuzz=FuzzCustomRuleProgressIsBounded -fuzztime=10s .
 
 .PHONY: pre-commit
 pre-commit: license lint tests build

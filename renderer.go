@@ -1,3 +1,8 @@
+/*
+ *  Copyright (c) 2026 Mikhail Knyazhev <markus621@yandex.com>. All rights reserved.
+ *  Use of this source code is governed by a BSD 3-Clause license that can be found in the LICENSE file.
+ */
+
 package markdown
 
 import (
@@ -461,9 +466,49 @@ func renderHardbreak(ctx *RenderContext, writer io.Writer, _ Token) error {
 
 func renderHTML(ctx *RenderContext, writer io.Writer, token Token) error {
 	if ctx.state.cfg.unsafeRawHTML {
-		return writeString(writer, token.Literal)
+		return writeString(writer, filterDisallowedHTML(token.Literal))
 	}
 	return ctx.WriteText(writer, token.Literal)
+}
+
+func filterDisallowedHTML(value string) string {
+	const (
+		lessThanEntity = "&lt;"
+		disallowedTags = "title textarea style xmp iframe noembed noframes script plaintext"
+	)
+
+	var builder strings.Builder
+	last := 0
+	for position := 0; position < len(value); position++ {
+		if value[position] != '<' {
+			continue
+		}
+
+		tagStart := position + 1
+		if tagStart < len(value) && value[tagStart] == '/' {
+			tagStart++
+		}
+		for _, tag := range strings.Fields(disallowedTags) {
+			end := tagStart + len(tag)
+			if end > len(value) || !strings.EqualFold(value[tagStart:end], tag) {
+				continue
+			}
+			if end < len(value) && value[end] != '>' && value[end] != '/' && !isWhitespaceByte(value[end]) {
+				continue
+			}
+
+			builder.WriteString(value[last:position])
+			builder.WriteString(lessThanEntity)
+			last = position + 1
+			position = end - 1
+			break
+		}
+	}
+	if last == 0 {
+		return value
+	}
+	builder.WriteString(value[last:])
+	return builder.String()
 }
 
 func renderTable(ctx *RenderContext, writer io.Writer, token Token) error {
@@ -552,7 +597,7 @@ func safeURL(value string) (string, bool) {
 	}
 	scheme := strings.ToLower(parsed.Scheme)
 	switch scheme {
-	case "", "http", "https", "mailto", "tel":
+	case "", "http", "https", "mailto", "tel", "xmpp":
 		return value, true
 	default:
 		return "", false

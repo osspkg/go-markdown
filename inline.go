@@ -1,3 +1,8 @@
+/*
+ *  Copyright (c) 2026 Mikhail Knyazhev <markus621@yandex.com>. All rights reserved.
+ *  Use of this source code is governed by a BSD 3-Clause license that can be found in the LICENSE file.
+ */
+
 package markdown
 
 import (
@@ -335,34 +340,42 @@ func parseInlineLinkDestination(source string, open, end int) (string, string, i
 	}
 	title := ""
 	if position < end && source[position] != ')' {
-		start := position
-		quote := source[position]
-		closing := byte(0)
-		switch quote {
-		case '"', '\'':
-			closing = quote
-		case '(':
-			closing = ')'
-		default:
+		var ok bool
+		title, position, ok = parseInlineLinkTitle(source, position, end)
+		if !ok {
 			return "", "", open, false
-		}
-		position++
-		for position < end && source[position] != closing {
-			position++
-		}
-		if position >= end {
-			return "", "", open, false
-		}
-		title = source[start+1 : position]
-		position++
-		for position < end && (source[position] == ' ' || source[position] == '\t' || source[position] == '\n') {
-			position++
 		}
 	}
 	if position >= end || source[position] != ')' {
 		return "", "", open, false
 	}
 	return destination, title, position + 1, true
+}
+
+func parseInlineLinkTitle(source string, position, end int) (string, int, bool) {
+	start := position
+	closing := byte(0)
+	switch quote := source[position]; quote {
+	case '"', '\'':
+		closing = quote
+	case '(':
+		closing = ')'
+	default:
+		return "", position, false
+	}
+	position++
+	for position < end && source[position] != closing {
+		position++
+	}
+	if position >= end {
+		return "", position, false
+	}
+	title := source[start+1 : position]
+	position++
+	for position < end && (source[position] == ' ' || source[position] == '\t' || source[position] == '\n') {
+		position++
+	}
+	return title, position, true
 }
 
 func findClosingBracket(source string, start, end int) int {
@@ -414,8 +427,7 @@ func (p *parser) parseAngleToken(start, end int) (Token, int, bool) {
 }
 
 func angleDestination(value string) (string, bool) {
-	lower := strings.ToLower(value)
-	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") || strings.HasPrefix(lower, "mailto:") {
+	if isURIAutolink(value) {
 		return value, true
 	}
 	if looksEmail(value) {
@@ -424,26 +436,61 @@ func angleDestination(value string) (string, bool) {
 	return "", false
 }
 
+func isURIAutolink(value string) bool {
+	colon := strings.IndexByte(value, ':')
+	if colon < 2 || colon > 32 || colon == len(value)-1 {
+		return false
+	}
+	if !isASCIIAlphaNumeric(value[0]) || value[0] >= '0' && value[0] <= '9' {
+		return false
+	}
+	for i := 1; i < colon; i++ {
+		character := value[i]
+		if !isASCIIAlphaNumeric(character) && character != '+' && character != '.' && character != '-' {
+			return false
+		}
+	}
+	return !strings.ContainsAny(value[colon+1:], " <>\t\r\n")
+}
+
 func looksLikeHTML(value string) bool {
 	if value == "" || strings.HasPrefix(value, "!") || strings.HasPrefix(value, "?") {
 		return true
 	}
+	closing := false
 	if value[0] == '/' {
+		closing = true
 		value = value[1:]
 	}
-	if value == "" {
+	if value == "" || !isASCIIAlpha(value[0]) {
 		return false
 	}
-	return unicode.IsLetter(rune(value[0]))
+	position := 1
+	for position < len(value) && (isASCIIAlphaNumeric(value[position]) || value[position] == '-') {
+		position++
+	}
+	if position == len(value) || isWhitespaceByte(value[position]) {
+		return true
+	}
+	return !closing && value[position] == '/'
+}
+
+func isASCIIAlpha(value byte) bool {
+	return value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z'
 }
 
 func (p *parser) parseDelimited(start, end, depth int) (Token, int, bool, error) {
 	marker := p.source[start]
 	length := 1
-	if marker == '~' && (start+1 >= end || p.source[start+1] != '~') {
-		return Token{}, start, false, nil
-	}
-	if (marker == '*' || marker == '_' || marker == '~') && start+1 < end && p.source[start+1] == marker {
+	if marker == '~' {
+		if start > 0 && p.source[start-1] == marker {
+			return Token{}, start, false, nil
+		}
+		length = delimiterRunLength(p.source, start, end, marker)
+		if length > 2 {
+			return Token{}, start, false, nil
+		}
+	} else if (marker == '*' || marker == '_') && start+1 < end && p.source[start+1] == marker {
 		length = 2
 	}
 	if marker != '*' && marker != '_' && marker != '~' {
@@ -453,7 +500,12 @@ func (p *parser) parseDelimited(start, end, depth int) (Token, int, bool, error)
 		return Token{}, start, false, nil
 	}
 
-	closing := findDelimiter(p.source, start+length, end, marker, length)
+	var closing int
+	if marker == '~' {
+		closing = findTildeDelimiter(p.source, start+length, end, length)
+	} else {
+		closing = findDelimiter(p.source, start+length, end, marker, length)
+	}
 	if closing < 0 || closing == start+length {
 		return Token{}, start, false, nil
 	}
@@ -486,6 +538,34 @@ func findDelimiter(source string, start, end int, marker byte, length int) int {
 	return -1
 }
 
+func delimiterRunLength(source string, start, end int, marker byte) int {
+	position := start
+	for position < end && source[position] == marker {
+		position++
+	}
+	return position - start
+}
+
+func findTildeDelimiter(source string, start, end, length int) int {
+	for i := start; i < end; {
+		if source[i] == '\\' {
+			i += 2
+			continue
+		}
+		if source[i] != '~' {
+			i++
+			continue
+		}
+
+		runLength := delimiterRunLength(source, i, end, '~')
+		if runLength == length {
+			return i
+		}
+		i += runLength
+	}
+	return -1
+}
+
 func (p *parser) parseAutolinkLiteral(start, end int) (Token, int, bool) {
 	value := p.source[start:end]
 	prefix := ""
@@ -494,10 +574,14 @@ func (p *parser) parseAutolinkLiteral(start, end int) (Token, int, bool) {
 		prefix = "http://"
 	case strings.HasPrefix(value, "https://"):
 		prefix = "https://"
+	case strings.HasPrefix(value, "mailto:"):
+		prefix = "mailto:"
+	case strings.HasPrefix(value, "xmpp:"):
+		prefix = "xmpp:"
 	case strings.HasPrefix(value, "www."):
 		prefix = "www."
 	default:
-		if start == 0 || isWhitespaceByte(p.source[start-1]) {
+		if isAutolinkBoundary(p.source, start) {
 			if looksEmailStart(value) {
 				prefix = "email"
 			}
@@ -506,7 +590,7 @@ func (p *parser) parseAutolinkLiteral(start, end int) (Token, int, bool) {
 	if prefix == "" {
 		return Token{}, start, false
 	}
-	if start > 0 && !isWhitespaceByte(p.source[start-1]) && p.source[start-1] != '(' && p.source[start-1] != '[' {
+	if !isAutolinkBoundary(p.source, start) {
 		return Token{}, start, false
 	}
 
@@ -514,7 +598,7 @@ func (p *parser) parseAutolinkLiteral(start, end int) (Token, int, bool) {
 	for length < len(value) && !isURLTerminator(value[length]) {
 		length++
 	}
-	if prefix == "email" && length == 0 {
+	if (prefix == "email" || prefix == "mailto:" || prefix == "xmpp:") && length == 0 {
 		return Token{}, start, false
 	}
 	literal := value[:length]
@@ -522,12 +606,15 @@ func (p *parser) parseAutolinkLiteral(start, end int) (Token, int, bool) {
 	if prefix != "email" && len(literal) == len(prefix) {
 		return Token{}, start, false
 	}
+	if (prefix == "mailto:" || prefix == "xmpp:") && !isGFMBareEmail(strings.TrimPrefix(literal, prefix)) {
+		return Token{}, start, false
+	}
 	destination := literal
 	if prefix == "www." {
 		destination = "http://" + literal
 	}
 	if prefix == "email" {
-		if !looksEmail(literal) {
+		if !isGFMBareEmail(literal) {
 			return Token{}, start, false
 		}
 		destination = "mailto:" + literal
@@ -551,6 +638,14 @@ func isWordRune(value rune) bool {
 
 func isWhitespaceByte(value byte) bool {
 	return value == ' ' || value == '\t' || value == '\n'
+}
+
+func isAutolinkBoundary(source string, start int) bool {
+	if start == 0 {
+		return true
+	}
+	previous := source[start-1]
+	return isWhitespaceByte(previous) || strings.ContainsRune("*_~(", rune(previous))
 }
 
 func isURLTerminator(value byte) bool {
@@ -601,6 +696,55 @@ func isEmailLiteralByte(value byte) bool {
 }
 
 func looksEmail(value string) bool {
-	at := strings.LastIndexByte(value, '@')
-	return at > 0 && at+1 < len(value) && !strings.ContainsAny(value[:at], " <>\n") && !strings.ContainsAny(value[at+1:], " <>\n")
+	at := strings.IndexByte(value, '@')
+	if at <= 0 || at == len(value)-1 || strings.IndexByte(value[at+1:], '@') >= 0 {
+		return false
+	}
+	for i := 0; i < at; i++ {
+		if !strings.ContainsRune(".!#$%&'*+/=?^_`{|}~-", rune(value[i])) && !isASCIIAlphaNumeric(value[i]) {
+			return false
+		}
+	}
+	for _, label := range strings.Split(value[at+1:], ".") {
+		if len(label) == 0 || len(label) > 63 || !isASCIIAlphaNumeric(label[0]) || !isASCIIAlphaNumeric(label[len(label)-1]) {
+			return false
+		}
+		for i := 1; i < len(label)-1; i++ {
+			if !isASCIIAlphaNumeric(label[i]) && label[i] != '-' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func isGFMBareEmail(value string) bool {
+	at := strings.IndexByte(value, '@')
+	if at <= 0 || at == len(value)-1 || strings.IndexByte(value[at+1:], '@') >= 0 {
+		return false
+	}
+	for i := 0; i < at; i++ {
+		if !isASCIIAlphaNumeric(value[i]) && !strings.ContainsRune("._+-", rune(value[i])) {
+			return false
+		}
+	}
+	domain := value[at+1:]
+	if !strings.ContainsRune(domain, '.') || domain[len(domain)-1] == '-' || domain[len(domain)-1] == '_' {
+		return false
+	}
+	for i := 0; i < len(domain); i++ {
+		if !isASCIIAlphaNumeric(domain[i]) && !strings.ContainsRune("._-", rune(domain[i])) {
+			return false
+		}
+		if domain[i] == '.' && (i == 0 || domain[i-1] == '.') {
+			return false
+		}
+	}
+	return true
+}
+
+func isASCIIAlphaNumeric(value byte) bool {
+	return value >= 'a' && value <= 'z' ||
+		value >= 'A' && value <= 'Z' ||
+		value >= '0' && value <= '9'
 }

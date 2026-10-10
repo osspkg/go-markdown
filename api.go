@@ -1,3 +1,8 @@
+/*
+ *  Copyright (c) 2026 Mikhail Knyazhev <markus621@yandex.com>. All rights reserved.
+ *  Use of this source code is governed by a BSD 3-Clause license that can be found in the LICENSE file.
+ */
+
 // Package markdown tokenizes CommonMark and GFM documents and renders them as
 // HTML through replaceable token handlers.
 package markdown
@@ -243,7 +248,8 @@ func WithHTMLFormat(format HTMLFormat) Option {
 	}
 }
 
-// WithUnsafeRawHTML allows raw HTML blocks and inline HTML to pass through.
+// WithUnsafeRawHTML allows raw HTML blocks and inline HTML to pass through,
+// except for the GFM-disallowed tags filtered by the built-in renderer.
 // User-provided handlers are trusted code regardless of this option.
 func WithUnsafeRawHTML() Option {
 	return func(cfg *config) error {

@@ -120,11 +120,12 @@ Custom token IDs also need a registered handler before the converter is used.
 ## Security
 
 The built-in renderer escapes text and HTML attributes. Raw HTML input is
-escaped by default; `markdown.WithUnsafeRawHTML()` allows raw HTML through.
-Built-in links and images accept only `http`, `https`, `mailto`, `tel`, relative,
-and fragment URLs. Custom handlers write HTML directly and are trusted code;
-use `RenderContext.WriteText`, `WriteAttribute`, and `SafeURL` when handling
-untrusted values.
+escaped by default; `markdown.WithUnsafeRawHTML()` allows raw HTML through,
+while filtering GFM-disallowed tags such as `<script>` and `<style>`.
+Built-in links and images accept only `http`, `https`, `mailto`, `tel`, `xmpp`,
+relative, and fragment URLs. Custom handlers write HTML directly and are
+trusted code; use `RenderContext.WriteText`, `WriteAttribute`, and `SafeURL`
+when handling untrusted values.
 
 By default, input is limited to 16 MiB, nesting depth to 128, and token count
 to 1,000,000. Configure these limits with `WithMaxInputBytes`,

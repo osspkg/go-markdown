@@ -88,6 +88,70 @@ func TestUnit_Converter_ConvertGFM(t *testing.T) {
 	}
 }
 
+func TestUnit_Converter_GFMEdgeCases(t *testing.T) {
+	converter, err := markdown.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "mismatched table columns stay a paragraph",
+			input:    "| A | B |\n| --- |\n| x |",
+			expected: "<p>| A | B |\n| --- |\n| x |</p>",
+		},
+		{
+			name:     "single tilde strikethrough",
+			input:    "~old~",
+			expected: "<p><del>old</del></p>",
+		},
+		{
+			name:     "double tilde strikethrough",
+			input:    "~~old~~",
+			expected: "<p><del>old</del></p>",
+		},
+		{
+			name:     "three tildes are literal",
+			input:    "This will ~~~not~~~ strike.",
+			expected: "<p>This will ~~~not~~~ strike.</p>",
+		},
+		{
+			name:     "email autolink rejects plus in domain",
+			input:    "hello@mail+xyz.example",
+			expected: "<p>hello@mail+xyz.example</p>",
+		},
+		{
+			name:     "protocol email autolinks",
+			input:    "mailto:foo@bar.example xmpp:foo@bar.example",
+			expected: `<p><a href="mailto:foo@bar.example">mailto:foo@bar.example</a> <a href="xmpp:foo@bar.example">xmpp:foo@bar.example</a></p>`,
+		},
+		{
+			name:     "tab inside task marker is unchecked",
+			input:    "- [\t] item",
+			expected: `<ul><li><input type="checkbox" disabled> item</li></ul>`,
+		},
+		{
+			name:     "NUL is replaced with replacement character",
+			input:    "a\x00b",
+			expected: "<p>a�b</p>",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, convertErr := converter.Convert(tt.input)
+			if convertErr != nil {
+				t.Fatalf("Convert() error = %v", convertErr)
+			}
+			if result.HTML != tt.expected {
+				t.Errorf("Convert(%q) = %q, want %q", tt.input, result.HTML, tt.expected)
+			}
+		})
+	}
+}
+
 func TestUnit_Converter_Tokenize(t *testing.T) {
 	converter, err := markdown.New()
 	if err != nil {
@@ -342,6 +406,29 @@ func TestUnit_Converter_SecurityDefaults(t *testing.T) {
 	}
 	if unsafeResult.HTML != "<b>trusted</b>" {
 		t.Errorf("unsafe HTML = %q", unsafeResult.HTML)
+	}
+	disallowedResult, err := unsafe.Convert("<SCRIPT>alert(1)</SCRIPT> <scripture>allowed</scripture>")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedUnsafeHTML := "&lt;SCRIPT>alert(1)&lt;/SCRIPT> <scripture>allowed</scripture>"
+	if disallowedResult.HTML != expectedUnsafeHTML {
+		t.Errorf("unsafe HTML filter = %q, want %q", disallowedResult.HTML, expectedUnsafeHTML)
+	}
+	inlineDisallowed, err := unsafe.Convert("before <script>alert(1)</script> after")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedInlineHTML := "<p>before &lt;script>alert(1)&lt;/script> after</p>"
+	if inlineDisallowed.HTML != expectedInlineHTML {
+		t.Errorf("unsafe inline HTML filter = %q, want %q", inlineDisallowed.HTML, expectedInlineHTML)
+	}
+	invalidEmail, err := unsafe.Convert("<foo@mail+xyz.example>")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if invalidEmail.HTML != "<p>&lt;foo@mail+xyz.example&gt;</p>" {
+		t.Errorf("invalid angle email = %q, want escaped text", invalidEmail.HTML)
 	}
 }
 

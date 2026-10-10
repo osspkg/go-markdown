@@ -1,3 +1,8 @@
+/*
+ *  Copyright (c) 2026 Mikhail Knyazhev <markus621@yandex.com>. All rights reserved.
+ *  Use of this source code is governed by a BSD 3-Clause license that can be found in the LICENSE file.
+ */
+
 package markdown
 
 import (
@@ -32,21 +37,24 @@ func normalizeSource(source string) (string, error) {
 	if !utf8.ValidString(source) {
 		return "", ErrInvalidUTF8
 	}
-	if !strings.ContainsAny(source, "\r") {
+	if !strings.ContainsAny(source, "\r\x00") {
 		return source, nil
 	}
 
 	var builder strings.Builder
 	builder.Grow(len(source))
 	for i := 0; i < len(source); i++ {
-		if source[i] != '\r' {
+		switch source[i] {
+		case 0:
+			builder.WriteRune('\uFFFD')
+		case '\r':
+			if i+1 < len(source) && source[i+1] == '\n' {
+				i++
+			}
+			builder.WriteByte('\n')
+		default:
 			builder.WriteByte(source[i])
-			continue
 		}
-		if i+1 < len(source) && source[i+1] == '\n' {
-			i++
-		}
-		builder.WriteByte('\n')
 	}
 
 	return builder.String(), nil
@@ -795,16 +803,20 @@ func listMarker(line string) (ordered bool, markerWidth, start int, content stri
 }
 
 func extractTaskMarker(source string) (string, string) {
-	if len(source) < 4 || source[0] != '[' || source[2] != ']' || (source[3] != ' ' && source[3] != '\t') {
+	if len(source) < 4 || source[0] != '[' || source[2] != ']' || !isTaskMarkerWhitespace(source[3]) {
 		return "", source
 	}
-	if source[1] == ' ' {
+	if isTaskMarkerWhitespace(source[1]) {
 		return "false", source[4:]
 	}
 	if source[1] == 'x' || source[1] == 'X' {
 		return "true", source[4:]
 	}
 	return "", source
+}
+
+func isTaskMarkerWhitespace(value byte) bool {
+	return value == ' ' || value == '\t' || value == '\v' || value == '\f'
 }
 
 func (p *parser) parseTable(index, last, depth int) (Token, int, bool) {
@@ -817,16 +829,8 @@ func (p *parser) parseTable(index, last, depth int) (Token, int, bool) {
 	}
 
 	headCells := splitTableCells(p.lines[index].text)
-	if len(headCells) == 0 {
+	if len(headCells) == 0 || len(alignments) != len(headCells) {
 		return Token{}, index, false
-	}
-	if len(alignments) < len(headCells) {
-		for len(alignments) < len(headCells) {
-			alignments = append(alignments, "")
-		}
-	}
-	if len(alignments) > len(headCells) {
-		alignments = alignments[:len(headCells)]
 	}
 	head, err := p.makeTableRow(headCells, alignments, true, depth+1, p.lines[index].start)
 	if err != nil {
@@ -989,11 +993,16 @@ func isHTMLStart(line string) bool {
 	if indent > 3 || !strings.HasPrefix(trimmed, "<") {
 		return false
 	}
-	return strings.HasPrefix(trimmed, "<!--") ||
-		strings.HasPrefix(trimmed, "<?") ||
-		strings.HasPrefix(trimmed, "<![") ||
-		strings.HasPrefix(trimmed, "</") ||
-		(len(trimmed) > 1 && ((trimmed[1] >= 'a' && trimmed[1] <= 'z') || (trimmed[1] >= 'A' && trimmed[1] <= 'Z')))
+	if strings.HasPrefix(trimmed, "<!--") || strings.HasPrefix(trimmed, "<?") || strings.HasPrefix(trimmed, "<![") || strings.HasPrefix(trimmed, "<!") {
+		return true
+	}
+	end := strings.IndexByte(trimmed, '>')
+	if end < 0 {
+		return false
+	}
+	tag := trimmed[1:end]
+	tag = strings.TrimPrefix(tag, "/")
+	return looksLikeHTML(tag)
 }
 
 func (p *parser) parseParagraph(index, last, depth int) (Token, int, error) {

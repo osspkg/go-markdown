@@ -27,7 +27,7 @@
 | `(*markdown.RenderContext).RenderChildren(w io.Writer, token markdown.Token) error` | Рендерит дочерние токены по порядку. |
 | `(*markdown.RenderContext).WriteText(w io.Writer, value string) error` | Декодирует HTML-ссылки и экранирует текст для безопасного вывода. |
 | `(*markdown.RenderContext).WriteAttribute(w io.Writer, value string) error` | Экранирует значение HTML-атрибута. |
-| `(*markdown.RenderContext).SafeURL(value string) (string, bool)` | Проверяет URL по политике встроенного рендерера. Разрешены `http`, `https`, `mailto`, `tel`, относительные URL и фрагменты. |
+| `(*markdown.RenderContext).SafeURL(value string) (string, bool)` | Проверяет URL по политике встроенного рендерера. Разрешены `http`, `https`, `mailto`, `tel`, `xmpp`, относительные URL и фрагменты. |
 | `(*markdown.RenderContext).Source(token markdown.Token) string` | Возвращает часть исходного текста по `Span`. Доступна при вызове из `Convert`; при отдельном вызове `Render` возвращается пустая строка. |
 | `(*markdown.ParseContext).Source() string` | Возвращает нормализованный UTF-8 исходный текст, доступный правилу разбора. |
 | `(*markdown.ParseContext).Phase() markdown.RulePhase` | Возвращает фазу текущего пользовательского правила. |
@@ -53,7 +53,7 @@
 | --- | --- |
 | `markdown.WithErrorMode(mode)` | `ErrorModeFailFast` останавливает обработку на первой фатальной ошибке. `ErrorModeBestEffort` записывает восстанавливаемые ошибки в `Warnings`. По умолчанию — `ErrorModeFailFast`. |
 | `markdown.WithHTMLFormat(format)` | `HTMLFormatCompact` выдаёт компактный HTML. `HTMLFormatPretty` добавляет отступы и переводы строк. По умолчанию — `HTMLFormatCompact`. |
-| `markdown.WithUnsafeRawHTML()` | Разрешает пропускать входные HTML-блоки и inline HTML без экранирования. Включайте только для доверенного Markdown. |
+| `markdown.WithUnsafeRawHTML()` | Разрешает выводить raw HTML, но встроенный рендерер всё равно фильтрует запрещённые GFM-теги. Включайте только для доверенного Markdown. |
 | `markdown.WithMaxInputBytes(limit)` | Ограничивает размер нормализованного входа в байтах. По умолчанию — 16 МиБ; значение `0` отключает лимит. Отрицательное значение недопустимо. |
 | `markdown.WithMaxNestingDepth(limit)` | Ограничивает глубину разбора и рендеринга. По умолчанию — 128; значение должно быть положительным. |
 | `markdown.WithMaxTokens(limit)` | Ограничивает число токенов при одном разборе. По умолчанию — 1 000 000; значение должно быть положительным. |

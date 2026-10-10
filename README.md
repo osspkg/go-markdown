@@ -1,6 +1,31 @@
-# go.osspkg.com/markdown
+# go-markdown
 
-`go.osspkg.com/markdown` is a Go library that parses Markdown into a
+[![Go Reference](https://pkg.go.dev/badge/go.osspkg.com/markdown.svg)](https://pkg.go.dev/go.osspkg.com/markdown)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/osspkg/go-markdown)](https://go.dev/)
+[![CI](https://github.com/osspkg/go-markdown/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/osspkg/go-markdown/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/osspkg/go-markdown)](LICENSE)
+
+`go.osspkg.com/markdown` is the import path for this library.
+
+## Contents
+
+- [Overview](#overview)
+- [Requirements and installation](#requirements-and-installation)
+- [Quick start](#quick-start)
+- [Features](#features)
+- [HTML to Markdown](#html-to-markdown)
+- [Customize rendering](#customize-rendering)
+- [Add a parser rule](#add-a-parser-rule)
+- [Security](#security)
+- [Configuration](#configuration)
+- [Development](#development)
+- [Contributing](#contributing)
+- [Contributors](#contributors)
+- [License](#license)
+
+## Overview
+
+This Go library parses Markdown into a
 hierarchical token tree and renders it as HTML. It includes CommonMark-style
 block and inline syntax, selected GitHub Flavored Markdown (GFM) features, and
 extension points for custom parser rules and renderers in both directions.
@@ -8,11 +33,9 @@ extension points for custom parser rules and renderers in both directions.
 See the [API reference](API.md) for the available methods, token IDs, and
 attributes.
 
-## Requirements
+## Requirements and installation
 
-- Go 1.26 or later
-
-## Installation
+Requires Go 1.26 or later.
 
 ```sh
 go get go.osspkg.com/markdown
@@ -259,3 +282,17 @@ ordinary code changes.
 The CI workflow runs `make ci` with Go 1.26. See
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) and the
 [Makefile](Makefile) for the maintained command definitions.
+
+## Contributing
+
+Use Go 1.26 or later. Before opening a pull request, run `make ci` from the
+repository root; it installs and configures `goppy`, then runs license, lint,
+test, benchmark, fuzz, and build steps. The setup may download tooling.
+
+## Contributors
+
+See the [contributor list](https://github.com/osspkg/go-markdown/graphs/contributors).
+
+## License
+
+This project is licensed under the [BSD 3-Clause License](LICENSE).
